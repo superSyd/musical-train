@@ -1,48 +1,117 @@
-// server.js
-// where your node app starts
-
-// init project
 require('dotenv').config();
-var express = require('express');
-var app = express();
+const bodyParser = require("body-parser");
+const bcrypt = require('bcrypt');
+const dns = require('dns');
+const mongoose = require('mongoose');
+const express = require('express');
+const cors = require('cors');
+const app = express();
 
-// enable CORS (https://en.wikipedia.org/wiki/Cross-origin_resource_sharing)
-// so that your API is remotely testable by FCC 
-var cors = require('cors');
-app.use(cors({optionsSuccessStatus: 200}));  // some legacy browsers choke on 204
-
-// http://expressjs.com/en/starter/static-files.html
-app.use(express.static('public'));
-
-// http://expressjs.com/en/starter/basic-routing.html
-app.get("/", function (req, res) {
-  res.sendFile(__dirname + '/views/index.html');
+mongoose.connect(process.env.MONGO_URI, {
+  useNewURLParser: true, 
+  useUnifiedTopology: true
 });
 
+if(!mongoose.connection.readyState){
+  console.log("database error")
+}
 
-// your first API endpoint... 
-app.get("/api/hello", function (req, res) {
-  res.json({greeting: 'hello API'});
+  // Basic Configuration
+const port = process.env.PORT || 3000;
+
+app.use(cors());
+
+app.use(bodyParser.urlencoded({ extended: "true" }));
+app.use(bodyParser.json());
+
+app.use('/public', express.static(`${process.cwd()}/public`));
+
+app.get('/', function(req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
 });
 
-
-
-// listen for requests :)
-var listener = app.listen(process.env.PORT, function () {
-  console.log('Your app is listening on port ' + listener.address().port);
+// Your first API endpoint
+app.get('/api/hello', function(req, res) {
+  res.json({ greeting: 'hello API' });
 });
 
+app.listen(port, function() {
+  console.log(`Listening on port ${port}`);
+});
 
-app.get("/api/whoami", (req,res)=>{
+const urlSchema = new mongoose.Schema({
+  originalUrl: {type: String,
+    required: true,
+    index: {
+      unique: true
+    }},
+  shortUrl: {type: String,
+    required: true,
+    index: {
+      unique: true
+    }}
+});
 
-  const myIpAddress = req.connection.remoteAddress;
-  const myLanguage = req.get('accept-language');
-  const mySoftware = req.get('user-agent');
+let sampleUrl = mongoose.model("sampleUrl", urlSchema);
 
-  res.json({
-    ipaddress: myIpAddress,
-    language: myLanguage,
-    software: mySoftware
+const saveUrl = (currentUrl, hash) => {
+        const myUrl = new sampleUrl({
+        originalUrl: currentUrl,
+        shortUrl: hash
+      });
+
+     
+
+          myUrl.save((err,data)=>{
+          if(err){
+            return console.log(err)
+          }
+          });
+
+}
+
+app.post("/api/shorturl/new", (req,res)=>{
+  const myOriginalUrl = req.body.url;
+
+  dns.lookup(myOriginalUrl, (err, addresses, family)=>{
+    if(err){
+      console.log(err);
+    }
+
+    const currentUrl = err.hostname;
+    
+
+      bcrypt.hash(myOriginalUrl, 10, (err,hash)=>{
+      if(err){
+        console.log(err)
+      }
+
+      const shortString = hash.substring(1,6)
+      
+      saveUrl(currentUrl, shortString);
+      res.json({
+        originalUrl: currentUrl,
+        shortUrl: shortString
+      })
+
+      });
   });
-  
 });
+
+app.get("/api/shorturl/:shorturl",(req,res)=>{
+  var myShortUrl = req.params.shorturl;
+
+  //get originalUrl by shortUrl
+
+  sampleUrl.findOne({'shortUrl': myShortUrl}, (err,url)=>{
+    if(err){
+      res.json({"error": "Invalid URL"})
+    }
+
+      
+      res.redirect(url.originalUrl);
+    
+  });
+});
+
+
