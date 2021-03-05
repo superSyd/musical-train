@@ -21,7 +21,7 @@ const port = process.env.PORT || 3000;
 
 app.use(cors());
 
-app.use(bodyParser.urlencoded({ extended: "true" }));
+app.use(bodyParser.urlencoded({ extended: "false" }));
 app.use(bodyParser.json());
 
 app.use('/public', express.static(`${process.cwd()}/public`));
@@ -54,7 +54,7 @@ const urlSchema = new mongoose.Schema({
 
 let sampleUrl = mongoose.model("sampleUrl", urlSchema);
 
-const saveUrl = (currentUrl, hash) => {
+const saveUrl = (currentUrl, hash, res) => {
         const myUrl = new sampleUrl({
         originalUrl: currentUrl,
         shortUrl: hash
@@ -62,37 +62,46 @@ const saveUrl = (currentUrl, hash) => {
 
           myUrl.save((err,data)=>{
           if(err){
-            return false
+            showExistingUrl(currentUrl, res)
           }else{
-            return true
+            res.json({
+        "original_url": currentUrl,
+        "short_url": hash
+        })
+            
           }
           });
 
 }
 
+const getDomain =(url) => {
+  var urlSplit = url.split("https://");
+  if (urlSplit[1] == undefined) {
+    return urlSplit[0].split("/")[0];
+  } else {
+    return urlSplit[1].split("/")[0];
+  }
+};
+
 app.post("/api/shorturl/new", (req,res)=>{
   const myOriginalUrl = req.body.url;
 
-  dns.lookup(myOriginalUrl, (err, addresses, family)=>{
-    if(err.errno != 'ENOTFOUND'){
-      res.json({'error':'Invalid URL'})
+  var domain = getDomain(myOriginalUrl);
+  dns.resolveAny(domain, (err, address) => {
+    if(err){
+      res.json({'error':'invalid url'})
+    } else {
+      const shortUrlOutput = sha1(myOriginalUrl).toString()  
+      saveUrl(myOriginalUrl, shortUrlOutput, res)
+        
     }
 
-    });
+  })
 
+  
     //const currentUrl = err.hostname;
 
-    const shortUrlOutput = sha1(myOriginalUrl)      
-        
-        if(saveUrl(myOriginalUrl, shortUrlOutput)){
-        res.json({
-        original_url: myOriginalUrl,
-        short_url: shortUrlOutput
-        })
-      } else {
-        
-       showExistingUrl(myOriginalUrl, res)
-      };
+    
   
       
   
@@ -106,10 +115,18 @@ const showExistingUrl = (currentUrl, res) =>{
       console.log(err)
     }
 
-    res.json({
-        original_url: url.originalUrl,
-        short_url: url.shortUrl
+    if(url == null){
+      res.json({
+        "error":"invalid url"
+      })
+    } else {
+      res.json({
+        "original_url": url.originalUrl,
+        "short_url": url.shortUrl
         })
+    }
+
+    
 
 
   })
@@ -124,11 +141,17 @@ app.get("/api/shorturl/:shorturl",(req,res)=>{
 
   sampleUrl.findOne({'shortUrl': myShortUrl}, (err,url)=>{
     if(err){
-      res.json({"error": "Invalid URL"})
+      res.json({"error": "invalid url"})
     }
 
-      
+    if(url == null){
+      res.json({
+        "error":"invalid url"
+      })
+    } else {
       res.redirect(url.originalUrl);
+    }
+
     
   });
 });
